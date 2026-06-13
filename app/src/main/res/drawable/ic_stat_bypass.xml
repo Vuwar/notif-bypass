@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <!-- Monochrome bell for the status-bar (notification) small icon -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2 C10.9,2 10,2.9 10,4 L10,4.5 C7.6,5.3 6,7.6 6,10.3 L6,16 L4,18 L4,19 L20,19 L20,18 L18,16 L18,10.3 C18,7.6 16.4,5.3 14,4.5 L14,4 C14,2.9 13.1,2 12,2 Z M10,20 C10,21.1 10.9,22 12,22 C13.1,22 14,21.1 14,20 Z" />
+</vector>

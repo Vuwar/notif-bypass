@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">NotifBypass</string>
+    <string name="listener_label">NotifBypass Listener</string>
+    <string name="btn_grant_access">Grant Notification Access</string>
+    <string name="btn_battery">Disable Battery Optimization</string>
+    <string name="btn_keep_alive">Start Keep-Alive Service</string>
+</resources>
