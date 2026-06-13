@@ -12,8 +12,10 @@ import android.util.Log
  * Shared vibration playback. Used by both the listener (real alerts) and the
  * settings screen (Test buttons), so the two can never drift apart.
  *
- * All vibrations are tagged as ringtone-class so they bypass Silent/DND haptic
- * suppression (best-effort; OEM skins may still interfere).
+ * All vibrations are tagged as ALARM-class so they bypass Silent AND DND haptic
+ * suppression. (Ringtone/notification-class vibrations are tied to the ringer, so
+ * they're silenced in full Silent mode — alarms are exempt.) Best-effort; OEM skins
+ * may still interfere.
  */
 object Haptics {
 
@@ -44,7 +46,7 @@ object Haptics {
             val effect = VibrationEffect.createWaveform(
                 timings, amplitudesFor(timings, onAmp), repeatIndex
             )
-            vibrator.vibrate(effect, ringtoneAttributes())
+            vibrator.vibrate(effect, bypassAttributes())
         } catch (e: Exception) {
             Log.e(TAG, "Vibration failed", e)
         }
@@ -55,9 +57,10 @@ object Haptics {
         getVibrator(ctx)?.cancel()
     }
 
-    private fun ringtoneAttributes(): AudioAttributes =
+    /** ALARM usage → exempt from Silent and DND haptic suppression. */
+    private fun bypassAttributes(): AudioAttributes =
         AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+            .setUsage(AudioAttributes.USAGE_ALARM)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
 }

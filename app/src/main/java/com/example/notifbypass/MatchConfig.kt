@@ -63,12 +63,95 @@ object MatchConfig {
             .map { it.trim() }
             .filter { it.isNotEmpty() }
 
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    // --- Matching ---
+
+    private const val KEY_MATCH_BODY = "match_body"
+
+    /** Whether the message body is searched too (needed for group chats). Default on. */
+    fun getMatchBody(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_MATCH_BODY, true)
+
+    fun setMatchBody(ctx: Context, enabled: Boolean) =
+        prefs(ctx).edit().putBoolean(KEY_MATCH_BODY, enabled).apply()
+
+    /**
+     * True if any configured alias for [pkg] appears (as a whole word) in the
+     * notification's sender fields — and, when [getMatchBody] is on, its body text.
+     * Whole-word matching stops short aliases (e.g. "ilo") matching inside other
+     * words like "kilo" or "philosophy".
+     */
+    fun matches(
+        ctx: Context,
+        pkg: String,
+        title: String,
+        text: String,
+        convTitle: String
+    ): Boolean {
+        val aliases = getAliases(ctx, pkg)
+        if (aliases.isEmpty()) return false
+
+        val haystack = buildString {
+            append(title).append(' ').append(convTitle)
+            if (getMatchBody(ctx)) append(' ').append(text)
+        }
+        return aliases.any { containsWholeWord(haystack, it) }
+    }
+
+    /**
+     * Case-insensitive "contains", but the alias must not be flanked by letters/
+     * digits on any alphanumeric edge. Uses locale-invariant lowercasing so the two
+     * sides fold identically (avoids the Turkish dotted/dotless-i pitfall).
+     */
+    private fun containsWholeWord(haystack: String, alias: String): Boolean {
+        if (alias.isEmpty()) return false
+        val h = haystack.lowercase()
+        val a = alias.lowercase()
+
+        var idx = h.indexOf(a)
+        while (idx >= 0) {
+            val before = if (idx > 0) h[idx - 1] else ' '
+            val after = if (idx + a.length < h.length) h[idx + a.length] else ' '
+            val leftOk = !a.first().isLetterOrDigit() || !before.isLetterOrDigit()
+            val rightOk = !a.last().isLetterOrDigit() || !after.isLetterOrDigit()
+            if (leftOk && rightOk) return true
+            idx = h.indexOf(a, idx + 1)
+        }
+        return false
+    }
+
+    // --- Last alert (proof of life) ---
+
+    private const val KEY_LAST_ALERT_AT = "last_alert_at"
+    private const val KEY_LAST_ALERT_DESC = "last_alert_desc"
+
+    /** Record that an alert just fired, e.g. desc = "WhatsApp call". */
+    fun recordAlert(ctx: Context, desc: String) =
+        prefs(ctx).edit()
+            .putLong(KEY_LAST_ALERT_AT, System.currentTimeMillis())
+            .putString(KEY_LAST_ALERT_DESC, desc)
+            .apply()
+
+    /** Epoch millis of the last alert, or 0 if none. */
+    fun getLastAlertAt(ctx: Context): Long = prefs(ctx).getLong(KEY_LAST_ALERT_AT, 0L)
+
+    fun getLastAlertDesc(ctx: Context): String? =
+        prefs(ctx).getString(KEY_LAST_ALERT_DESC, null)
+
+    // --- Optional alarm sound fallback ---
+
+    private const val KEY_PLAY_SOUND = "play_sound"
+
+    /** Whether to also play the system alarm sound on a match. Default off. */
+    fun getPlaySound(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_PLAY_SOUND, false)
+
+    fun setPlaySound(ctx: Context, enabled: Boolean) =
+        prefs(ctx).edit().putBoolean(KEY_PLAY_SOUND, enabled).apply()
+
     // --- Selected vibration patterns (ids from VibrationPatterns) ---
 
     private const val KEY_TEXT_PATTERN = "pattern_text"
     private const val KEY_CALL_PATTERN = "pattern_call"
-
-    private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun getTextPatternId(ctx: Context): String =
         prefs(ctx).getString(KEY_TEXT_PATTERN, null) ?: VibrationPatterns.TEXT.first().id

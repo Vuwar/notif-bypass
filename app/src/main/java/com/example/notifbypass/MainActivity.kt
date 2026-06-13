@@ -19,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity
 class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
+    private lateinit var grantButton: Button
 
     // pkg -> EditText holding that app's comma-separated aliases
     private val nameFields = mutableMapOf<String, EditText>()
@@ -42,7 +43,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 32, 0, 32)
         }
 
-        val grantButton = Button(this).apply {
+        grantButton = Button(this).apply {
             text = getString(R.string.btn_grant_access)
             setOnClickListener { openNotificationAccessSettings() }
         }
@@ -69,6 +70,20 @@ class MainActivity : AppCompatActivity() {
         root.addView(grantButton)
         root.addView(batteryButton)
         root.addView(keepAliveButton)
+
+        // --- "Phone settings to enable" reference checklist (set in system Settings) ---
+        val setupHeader = TextView(this).apply {
+            text = getString(R.string.setup_header)
+            textSize = 20f
+            setPadding(0, 48, 0, 8)
+        }
+        val setupText = TextView(this).apply {
+            text = getString(R.string.setup_checklist)
+            textSize = 14f
+            setLineSpacing(0f, 1.15f)
+        }
+        root.addView(setupHeader)
+        root.addView(setupText)
 
         // --- "Who to alert" section: one editable field per app ---
         val namesHeader = TextView(this).apply {
@@ -203,12 +218,20 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * Re-checks notification access (called on every [onResume], so it updates if
+     * the user revokes/grants access in Settings and returns). When active, the
+     * grant prompt disappears and only the green tick remains; if access is lost,
+     * the prompt comes back.
+     */
     private fun refreshStatus() {
-        statusText.text = if (isNotificationServiceEnabled()) {
+        val enabled = isNotificationServiceEnabled()
+        statusText.text = if (enabled) {
             "✅ Notification Access: ENABLED\nListener is active."
         } else {
             "❌ Notification Access: DISABLED\nTap below to enable."
         }
+        grantButton.visibility = if (enabled) View.GONE else View.VISIBLE
     }
 
     /** Checks whether our listener is in the system's enabled-listeners list. */

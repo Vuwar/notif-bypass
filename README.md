@@ -99,7 +99,9 @@ background apps. After installing:
 
 **Required**
 1. **Notification Access** — open the app → *Grant Notification Access* → enable
-   **NotifBypass**. Without this, nothing fires.
+   **NotifBypass**. Without this, nothing fires. Once active, the status shows a
+   green tick (“Listener is active”) and the grant button hides itself; it
+   reappears automatically if access is later revoked.
 
 **Recommended for MagicOS persistence**
 2. **Disable Battery Optimization** — app button → set NotifBypass to *Don't optimize*.
@@ -164,9 +166,12 @@ not commit it.**
 
 ## Caveats (honest)
 
-- **Silent/DND bypass is best-effort.** The framework honors ringtone-class
-  vibrations, but OEM skins can add their own suppression. The ALARM-stream sound
-  path is the more bulletproof fallback.
+- **Silent/DND bypass uses ALARM-class haptics.** Vibrations are tagged
+  `USAGE_ALARM` (see `Haptics.kt`), which is exempt from both Silent and DND on
+  virtually all builds. (Ringtone/notification-class vibrations are tied to the
+  ringer and get silenced in full Silent mode — that was the earlier bug.) Still
+  best-effort: OEM skins can add their own suppression, and the ALARM-stream sound
+  path remains the most bulletproof fallback.
 - **Background survival is the real fragility point**, not the code — the
   lock-in-recents + battery-optimization-off steps matter most.
 - **Call ring relies on the call notification.** The continuous ring vibration

@@ -4,6 +4,8 @@
     <string name="btn_grant_access">Grant Notification Access</string>
     <string name="btn_battery">Disable Battery Optimization</string>
     <string name="btn_keep_alive">Start Keep-Alive Service</string>
+    <string name="setup_header">Phone settings to enable (do these once)</string>
+    <string name="setup_checklist">Set these in your phone\'s Settings, not here — they keep the app alive in the background on MagicOS:\n\n1. Notification Access — use the button above (required).\n2. Battery optimization — use the button above; set NotifBypass to “Do not optimize”.\n3. Lock in Recents — open Recents, long-press the NotifBypass card, tap the lock icon.\n4. App launch — Settings → Apps → NotifBypass → Launch: turn off “Manage automatically”, then enable Auto-launch, Secondary launch, and Run in background.\n5. Startup apps — Phone Manager → Startup apps: allow NotifBypass.</string>
     <string name="names_header">Who to alert</string>
     <string name="names_hint">Comma-separated names/handles per app. Leave an app blank to disable it.</string>
     <string name="btn_save_names">Save names</string>
