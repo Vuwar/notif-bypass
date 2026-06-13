@@ -61,10 +61,34 @@ Steps:
 
 ## Customizing
 
+**Names are edited in-app** — open NotifBypass → *Who to alert* → one field per app
+holds a comma-separated list of names/handles (case-insensitive `contains`). The
+same person often shows up differently per app, e.g. `İlahə` on WhatsApp but
+`ilo, @ilheexs` on TikTok. Matching is **per-app**, so a short alias can't
+false-trigger in another app. Leave a field blank to disable that app. Values are
+saved to `SharedPreferences` and read live by the listener — no rebuild needed.
+
+In `MatchConfig.kt`:
+- `APPS` → add/remove watched apps, change their labels, or change the built-in
+  default aliases (used to prefill the fields on first launch).
+
+**Vibration patterns are picked in-app** — open NotifBypass → *Vibration patterns* →
+choose a rhythm for *Her texts* and *Her calls* from the dropdowns, and hit **Test**
+to feel each one. Texts play once; calls loop until the call ends. Selections are
+saved to `SharedPreferences` and read live by the listener.
+
+To add/edit the available rhythms, see `VibrationPatterns.kt` (`TEXT` / `CALL`
+lists — first entry is the default). Text patterns must be even-length (so they tile
+cleanly when repeated in quiet mode); call patterns can be any length.
+
 In `MyNotificationListener.kt`:
-- `SPECIFIC_PERSON_NAME` → set to the real contact name to match (case-insensitive `contains`).
-- `VIBRATION_PATTERN` / `VIBRATION_AMPLITUDES` → tweak the haptic signature.
-- `TARGET_PACKAGES` → add/remove apps.
+- Call vs text is detected via `Notification.CATEGORY_CALL`.
+- `AMP_GENTLE` / `AMP_FULL` / `TEXT_REPEATS_QUIET` → mode-awareness. In **Silent/DND**
+  the text buzz goes full-strength and repeats `TEXT_REPEATS_QUIET` times; in **Normal**
+  it's a single gentle tap. Quiet mode = DND on, or ringer not normal (see `isQuietMode()`).
+- `CALL_MAX_RING_MS` → safety cap on the looping call ring.
+
+Shared playback (used by both the listener and the Test buttons) lives in `Haptics.kt`.
 
 ---
 
@@ -145,3 +169,8 @@ not commit it.**
   path is the more bulletproof fallback.
 - **Background survival is the real fragility point**, not the code — the
   lock-in-recents + battery-optimization-off steps matter most.
+- **Call ring relies on the call notification.** The continuous ring vibration
+  loops while the WhatsApp/IG/TikTok call notification is present and stops when it's
+  removed. Most builds post a `CATEGORY_CALL` notification with the caller's name, so
+  matching + detection work — but if a build doesn't, the call falls back to the
+  one-shot text buzz. A missed-call notice afterward will also buzz as a text.

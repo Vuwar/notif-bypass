@@ -1,0 +1,63 @@
+package com.example.notifbypass
+
+import android.content.Context
+import android.media.AudioAttributes
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.util.Log
+
+/**
+ * Shared vibration playback. Used by both the listener (real alerts) and the
+ * settings screen (Test buttons), so the two can never drift apart.
+ *
+ * All vibrations are tagged as ringtone-class so they bypass Silent/DND haptic
+ * suppression (best-effort; OEM skins may still interfere).
+ */
+object Haptics {
+
+    private const val TAG = "NotifBypass"
+
+    /** Resolves the system Vibrator across API levels. */
+    fun getVibrator(ctx: Context): Vibrator? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val manager = ctx.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            manager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            ctx.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+    }
+
+    /** Amplitude per segment: 0 for OFF (even) indices, [onAmp] for ON (odd) indices. */
+    fun amplitudesFor(timings: LongArray, onAmp: Int): IntArray =
+        IntArray(timings.size) { if (it % 2 == 1) onAmp else 0 }
+
+    /**
+     * Plays [timings] with the given on-segment amplitude.
+     * [repeatIndex] = -1 plays once; 0 loops the whole pattern until [cancel].
+     */
+    fun play(ctx: Context, timings: LongArray, onAmp: Int, repeatIndex: Int) {
+        val vibrator = getVibrator(ctx) ?: return
+        try {
+            val effect = VibrationEffect.createWaveform(
+                timings, amplitudesFor(timings, onAmp), repeatIndex
+            )
+            vibrator.vibrate(effect, ringtoneAttributes())
+        } catch (e: Exception) {
+            Log.e(TAG, "Vibration failed", e)
+        }
+    }
+
+    /** Stops any ongoing vibration started via [play]. */
+    fun cancel(ctx: Context) {
+        getVibrator(ctx)?.cancel()
+    }
+
+    private fun ringtoneAttributes(): AudioAttributes =
+        AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+}

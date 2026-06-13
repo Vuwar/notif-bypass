@@ -4,4 +4,11 @@
     <string name="btn_grant_access">Grant Notification Access</string>
     <string name="btn_battery">Disable Battery Optimization</string>
     <string name="btn_keep_alive">Start Keep-Alive Service</string>
+    <string name="names_header">Who to alert</string>
+    <string name="names_hint">Comma-separated names/handles per app. Leave an app blank to disable it.</string>
+    <string name="btn_save_names">Save names</string>
+    <string name="vibe_header">Vibration patterns</string>
+    <string name="label_text_pattern">Her texts</string>
+    <string name="label_call_pattern">Her calls</string>
+    <string name="btn_test">Test</string>
 </resources>

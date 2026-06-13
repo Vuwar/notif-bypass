@@ -1,13 +1,13 @@
 package com.example.notifbypass
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -17,23 +17,26 @@ class MyNotificationListener : NotificationListenerService() {
     companion object {
         private const val TAG = "NotifBypass"
 
-        // Apps we care about
-        private val TARGET_PACKAGES = setOf(
-            "com.whatsapp",
-            "com.instagram.android",
-            "com.zhiliaoapp.musically" // TikTok
-        )
+        // Apps + per-app sender names AND the selected vibration patterns live in
+        // MatchConfig / VibrationPatterns (editable at runtime from the settings UI).
 
-        // The person whose notifications trigger the bypass.
-        // Matching is case-insensitive and uses "contains" so partial titles work.
-        private const val SPECIFIC_PERSON_NAME = "SpecificPersonName"
+        // On-segment amplitude by urgency (0..255).
+        private const val AMP_GENTLE = 160   // Normal mode
+        private const val AMP_FULL = 255     // Silent / DND
 
-        // Unique pattern: 0ms delay -> 300ms vibrate -> 150ms pause -> 300ms vibrate
-        private val VIBRATION_PATTERN = longArrayOf(0, 300, 150, 300)
+        // In a quiet mode, replay the one-shot text buzz this many times so it can't be missed.
+        private const val TEXT_REPEATS_QUIET = 3
+        private const val TEXT_REPEAT_GAP_MS = 250L
 
-        // Amplitudes matching the pattern (0 = off segment, 255 = full strength)
-        private val VIBRATION_AMPLITUDES = intArrayOf(0, 255, 0, 255)
+        // Safety cap: stop ringing after this long even if the call notification lingers
+        // (e.g. a build that keeps an "ongoing call" notification after answering).
+        private const val CALL_MAX_RING_MS = 30_000L
     }
+
+    /** Notification key of the call currently being rung, so we can stop it when it ends. */
+    private var activeCallKey: String? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private val stopCallRunnable = Runnable { stopCallVibration() }
 
     override fun onListenerConnected() {
         super.onListenerConnected()
@@ -47,7 +50,7 @@ class MyNotificationListener : NotificationListenerService() {
         val packageName = sbn.packageName ?: return
 
         // 1. Filter by target apps
-        if (packageName !in TARGET_PACKAGES) return
+        if (packageName !in MatchConfig.targetPackages) return
 
         // 2. Extract notification text fields
         val extras = sbn.notification.extras
@@ -61,63 +64,97 @@ class MyNotificationListener : NotificationListenerService() {
 
         val haystack = "$title $text $convTitle"
 
-        // 3. Match the specific person (case-insensitive)
-        if (haystack.contains(SPECIFIC_PERSON_NAME, ignoreCase = true)) {
-            Log.d(TAG, "Match from $packageName — title='$title'. Triggering bypass vibration.")
-            triggerBypassVibration()
+        // 3. Match any configured alias for this app (case-insensitive, per-app)
+        val aliases = MatchConfig.getAliases(this, packageName)
+        if (aliases.isEmpty()) return
+        if (aliases.none { haystack.contains(it, ignoreCase = true) }) return
 
-            // Optional: also play a distinct sound through silent mode.
-            // playEmergencySound()
+        // 4. Call vs text → distinct haptics.
+        val isCall = sbn.notification.category == Notification.CATEGORY_CALL
+        if (isCall) {
+            Log.d(TAG, "Call match from $packageName — title='$title'. Ringing.")
+            startCallVibration(sbn.key)
+        } else {
+            Log.d(TAG, "Text match from $packageName — title='$title'. Buzzing.")
+            triggerTextVibration()
         }
+
+        // Optional: also play a distinct sound through silent mode.
+        // playEmergencySound()
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        // Not needed for this use-case.
-    }
-
-    /**
-     * Fires a custom haptic pattern that bypasses Silent / DND by tagging the
-     * vibration as a NOTIFICATION_RINGTONE / SONIFICATION usage.
-     *
-     * USAGE_NOTIFICATION_RINGTONE is treated by the framework as a "ringer"
-     * channel, which is exempt from the touch/haptic-feedback suppression that
-     * normally silences vibrations in DND/Silent.
-     */
-    private fun triggerBypassVibration() {
-        val vibrator = getSystemVibrator() ?: return
-
-        // AudioAttributes that signal "this is a ringtone-class alert".
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
-
-        try {
-            // minSdk is 26, so VibrationEffect is always available here.
-            val effect = VibrationEffect.createWaveform(
-                VIBRATION_PATTERN,
-                VIBRATION_AMPLITUDES,
-                -1 // -1 = do not repeat
-            )
-            vibrator.vibrate(effect, audioAttributes)
-        } catch (e: Exception) {
-            Log.e(TAG, "Vibration failed", e)
+        // When the ringing call's notification disappears (answered / declined /
+        // missed), stop the repeating ring vibration.
+        if (sbn.key != null && sbn.key == activeCallKey) {
+            Log.d(TAG, "Call ended — stopping ring vibration.")
+            stopCallVibration()
         }
     }
 
     /**
-     * Resolves the Vibrator across API levels.
-     * Android 12+ (API 31): use VibratorManager.
-     * Older: use the legacy VIBRATOR_SERVICE.
+     * One-shot text buzz. Mode-aware: in Silent/DND it plays at full strength and
+     * repeats so it can't be missed; in Normal mode it's a single gentle tap.
      */
-    private fun getSystemVibrator(): Vibrator? {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-            manager?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
+    private fun triggerTextVibration() {
+        val quiet = isQuietMode()
+        val onAmp = if (quiet) AMP_FULL else AMP_GENTLE
+        val repeats = if (quiet) TEXT_REPEATS_QUIET else 1
+
+        val base = VibrationPatterns.text(MatchConfig.getTextPatternId(this)).timings
+        val timings = repeatPattern(base, repeats, TEXT_REPEAT_GAP_MS)
+        Haptics.play(this, timings, onAmp, -1) // -1 = play once
+    }
+
+    /**
+     * Continuous ring for an incoming call. Loops the ring pattern until
+     * [onNotificationRemoved] cancels it. Always full strength — it's a call.
+     */
+    private fun startCallVibration(key: String?) {
+        // Already ringing for this exact call (notifications re-post as they update).
+        if (key != null && key == activeCallKey) return
+        activeCallKey = key
+
+        // repeat = 0 → loop the whole pattern from the start until cancelled.
+        val base = VibrationPatterns.call(MatchConfig.getCallPatternId(this)).timings
+        Haptics.play(this, base, AMP_FULL, 0)
+
+        // Safety net in case the call notification never gets removed.
+        handler.removeCallbacks(stopCallRunnable)
+        handler.postDelayed(stopCallRunnable, CALL_MAX_RING_MS)
+    }
+
+    /** Stops the looping call ring and clears call state. */
+    private fun stopCallVibration() {
+        handler.removeCallbacks(stopCallRunnable)
+        activeCallKey = null
+        Haptics.cancel(this)
+    }
+
+    /**
+     * Concatenates [base] (a leading-0 waveform) [times] times, separated by [gapMs].
+     * Each block has an even length so the ON-is-odd-index parity is preserved.
+     */
+    private fun repeatPattern(base: LongArray, times: Int, gapMs: Long): LongArray {
+        if (times <= 1) return base
+        val tail = base.copyOf().also { it[0] = gapMs } // subsequent blocks start with the gap
+        val result = ArrayList<Long>(base.size * times)
+        base.forEach { result.add(it) }
+        repeat(times - 1) { tail.forEach { result.add(it) } }
+        return result.toLongArray()
+    }
+
+    /** True when the phone is in DND or any non-normal ringer (Silent/Vibrate). */
+    private fun isQuietMode(): Boolean {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        val dndOn = nm != null &&
+            nm.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL &&
+            nm.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_UNKNOWN
+
+        val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val ringerQuiet = am != null && am.ringerMode != AudioManager.RINGER_MODE_NORMAL
+
+        return dndOn || ringerQuiet
     }
 
     /**
