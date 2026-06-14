@@ -3,9 +3,7 @@ package com.example.notifbypass
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
-import android.media.AudioAttributes
 import android.media.AudioManager
-import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
 import android.service.notification.NotificationListenerService
@@ -38,6 +36,13 @@ class MyNotificationListener : NotificationListenerService() {
     private val handler = Handler(Looper.getMainLooper())
     private val stopCallRunnable = Runnable { stopCallVibration() }
 
+    /**
+     * Last message signature we alerted for, per notification key. Lets us tell a
+     * genuinely new message apart from a re-post/update of one we already buzzed for
+     * (which Android also delivers via onNotificationPosted).
+     */
+    private val lastTextSignature = HashMap<String, String>()
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         Log.d(TAG, "Listener connected.")
@@ -52,41 +57,57 @@ class MyNotificationListener : NotificationListenerService() {
         // 1. Filter by target apps
         if (packageName !in MatchConfig.targetPackages) return
 
-        // 2. Extract notification text fields
+        // 2. Ignore the bundle/summary notification. It aggregates EVERY chat, so it
+        //    still contains our person while her message is unread — which would make
+        //    us (wrongly) buzz whenever anyone else messages, and also double up with
+        //    the per-chat notification.
+        if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+
+        // 3. Extract notification text fields
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
-
-        // For group/conversation notifications, the sender can appear in the
-        // conversation title too — check all to be safe.
         val convTitle = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
             ?.toString().orEmpty()
 
-        val haystack = "$title $text $convTitle"
+        // 4. Match a configured alias (whole-word, per-app; sender-only unless body
+        //    matching is enabled).
+        if (!MatchConfig.matches(this, packageName, title, text, convTitle)) return
 
-        // 3. Match any configured alias for this app (case-insensitive, per-app)
-        val aliases = MatchConfig.getAliases(this, packageName)
-        if (aliases.isEmpty()) return
-        if (aliases.none { haystack.contains(it, ignoreCase = true) }) return
-
-        // 4. Call vs text → distinct haptics.
+        val label = MatchConfig.APPS.firstOrNull { it.pkg == packageName }?.label ?: packageName
         val isCall = sbn.notification.category == Notification.CATEGORY_CALL
+
         if (isCall) {
-            Log.d(TAG, "Call match from $packageName — title='$title'. Ringing.")
+            // Re-posts of the same ringing call shouldn't re-trigger.
+            if (sbn.key == activeCallKey) return
+            Log.d(TAG, "Call match from $packageName. Ringing.")
             startCallVibration(sbn.key)
+            MatchConfig.recordAlert(this, "$label call")
         } else {
+            // 5. De-dupe: only alert on a genuinely NEW message, not on a re-post /
+            //    update of one we already buzzed for (e.g. triggered by other chats).
+            val signature = "${sbn.notification.`when`}|$title|$text"
+            if (lastTextSignature[sbn.key] == signature) {
+                Log.d(TAG, "Re-post of an already-alerted message ($title) — skipping.")
+                return
+            }
+            lastTextSignature[sbn.key] = signature
+
             Log.d(TAG, "Text match from $packageName — title='$title'. Buzzing.")
             triggerTextVibration()
+            MatchConfig.recordAlert(this, "$label text")
         }
 
-        // Optional: also play a distinct sound through silent mode.
-        // playEmergencySound()
+        if (MatchConfig.getPlaySound(this)) SoundAlert.play(this)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        // Reading/dismissing the chat clears its signature, so the next message buzzes.
+        lastTextSignature.remove(sbn.key)
+
         // When the ringing call's notification disappears (answered / declined /
         // missed), stop the repeating ring vibration.
-        if (sbn.key != null && sbn.key == activeCallKey) {
+        if (sbn.key == activeCallKey) {
             Log.d(TAG, "Call ended — stopping ring vibration.")
             stopCallVibration()
         }
@@ -155,43 +176,5 @@ class MyNotificationListener : NotificationListenerService() {
         val ringerQuiet = am != null && am.ringerMode != AudioManager.RINGER_MODE_NORMAL
 
         return dndOn || ringerQuiet
-    }
-
-    /**
-     * OPTIONAL / SCALABLE:
-     * Plays a distinct sound that pushes through Silent mode by routing it to the
-     * ALARM stream (alarms are exempt from Silent and most DND configurations).
-     *
-     * Replace the placeholder at res/raw/emergency_tone with a real audio file
-     * (e.g. emergency_tone.mp3), then uncomment the call in onNotificationPosted().
-     */
-    fun playEmergencySound() {
-        try {
-            val mediaPlayer = MediaPlayer()
-            val audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-
-            mediaPlayer.setAudioAttributes(audioAttributes)
-
-            // Resolve res/raw/emergency_tone.* at runtime so the project still
-            // compiles even when no such file exists yet. Returns 0 if missing.
-            val resId = resources.getIdentifier("emergency_tone", "raw", packageName)
-            if (resId == 0) {
-                Log.w(TAG, "No res/raw/emergency_tone file found — skipping sound.")
-                return
-            }
-
-            val afd = resources.openRawResourceFd(resId) ?: return
-            mediaPlayer.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-            afd.close()
-
-            mediaPlayer.setOnPreparedListener { it.start() }
-            mediaPlayer.setOnCompletionListener { it.release() }
-            mediaPlayer.prepareAsync()
-        } catch (e: Exception) {
-            Log.e(TAG, "Emergency sound failed", e)
-        }
     }
 }

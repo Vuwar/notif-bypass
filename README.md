@@ -73,9 +73,17 @@ In `MatchConfig.kt`:
   default aliases (used to prefill the fields on first launch).
 
 **Vibration patterns are picked in-app** — open NotifBypass → *Vibration patterns* →
-choose a rhythm for *Her texts* and *Her calls* from the dropdowns, and hit **Test**
-to feel each one. Texts play once; calls loop until the call ends. Selections are
-saved to `SharedPreferences` and read live by the listener.
+choose a rhythm for *Her texts* and *Her calls* from the dropdowns, hit **Test** to
+feel each one, then tap **Save vibration patterns** to apply (nothing is saved until
+you tap Save). Texts play once; calls loop until the call ends. Saved choices are
+read live by the listener.
+
+Other in-app toggles:
+- **Also match the message text** (under *Who to alert*) — on by default; needed for
+  group chats where the sender is inside the body. Turn off to match the sender name
+  only (fewer false positives).
+- **Also play alarm sound on a match** — off by default; plays the phone's alarm tone
+  (DND-proof) for a few seconds in addition to vibrating.
 
 To add/edit the available rhythms, see `VibrationPatterns.kt` (`TEXT` / `CALL`
 lists — first entry is the default). Text patterns must be even-length (so they tile

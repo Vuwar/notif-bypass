@@ -43,9 +43,13 @@ object Haptics {
     fun play(ctx: Context, timings: LongArray, onAmp: Int, repeatIndex: Int) {
         val vibrator = getVibrator(ctx) ?: return
         try {
-            val effect = VibrationEffect.createWaveform(
-                timings, amplitudesFor(timings, onAmp), repeatIndex
-            )
+            // Only send amplitudes if the motor supports them; otherwise the
+            // on/off-only overload (every non-zero timing = ON) is the safe path.
+            val effect = if (vibrator.hasAmplitudeControl()) {
+                VibrationEffect.createWaveform(timings, amplitudesFor(timings, onAmp), repeatIndex)
+            } else {
+                VibrationEffect.createWaveform(timings, repeatIndex)
+            }
             vibrator.vibrate(effect, bypassAttributes())
         } catch (e: Exception) {
             Log.e(TAG, "Vibration failed", e)

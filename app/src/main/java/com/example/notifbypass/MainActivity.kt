@@ -1,13 +1,17 @@
 package com.example.notifbypass
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.format.DateUtils
 import android.view.View
-import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -15,17 +19,25 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
+    private lateinit var lastAlertText: TextView
     private lateinit var grantButton: Button
 
     // pkg -> EditText holding that app's comma-separated aliases
     private val nameFields = mutableMapOf<String, EditText>()
 
+    // Pattern dropdowns; persisted only when "Save vibration patterns" is tapped.
+    private lateinit var textPatternSpinner: Spinner
+    private lateinit var callPatternSpinner: Spinner
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        requestPostNotificationsIfNeeded()
 
         // Tiny code-built UI so we don't need an XML layout file.
         val root = LinearLayout(this).apply {
@@ -40,7 +52,12 @@ class MainActivity : AppCompatActivity() {
 
         statusText = TextView(this).apply {
             textSize = 16f
-            setPadding(0, 32, 0, 32)
+            setPadding(0, 32, 0, 8)
+        }
+
+        lastAlertText = TextView(this).apply {
+            textSize = 13f
+            setPadding(0, 0, 0, 24)
         }
 
         grantButton = Button(this).apply {
@@ -67,6 +84,7 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(title)
         root.addView(statusText)
+        root.addView(lastAlertText)
         root.addView(grantButton)
         root.addView(batteryButton)
         root.addView(keepAliveButton)
@@ -120,6 +138,15 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(saveNamesButton)
 
+        val matchBodyCheck = CheckBox(this).apply {
+            text = getString(R.string.label_match_body)
+            isChecked = MatchConfig.getMatchBody(this@MainActivity)
+            setOnCheckedChangeListener { _, checked ->
+                MatchConfig.setMatchBody(this@MainActivity, checked)
+            }
+        }
+        root.addView(matchBodyCheck)
+
         // --- "Vibration patterns" section: pick + test the text/call buzz ---
         val vibeHeader = TextView(this).apply {
             text = getString(R.string.vibe_header)
@@ -128,19 +155,34 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(vibeHeader)
 
-        addPatternSelector(
+        textPatternSpinner = addPatternSelector(
             root,
             getString(R.string.label_text_pattern),
             VibrationPatterns.TEXT,
             MatchConfig.getTextPatternId(this)
-        ) { MatchConfig.setTextPatternId(this, it) }
+        )
 
-        addPatternSelector(
+        callPatternSpinner = addPatternSelector(
             root,
             getString(R.string.label_call_pattern),
             VibrationPatterns.CALL,
             MatchConfig.getCallPatternId(this)
-        ) { MatchConfig.setCallPatternId(this, it) }
+        )
+
+        val savePatternsButton = Button(this).apply {
+            text = getString(R.string.btn_save_patterns)
+            setOnClickListener { saveVibrationPatterns() }
+        }
+        root.addView(savePatternsButton)
+
+        val playSoundCheck = CheckBox(this).apply {
+            text = getString(R.string.label_play_sound)
+            isChecked = MatchConfig.getPlaySound(this@MainActivity)
+            setOnCheckedChangeListener { _, checked ->
+                MatchConfig.setPlaySound(this@MainActivity, checked)
+            }
+        }
+        root.addView(playSoundCheck)
 
         // Scrollable so the name fields are reachable on small screens.
         val scroll = ScrollView(this).apply { addView(root) }
@@ -157,16 +199,17 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Builds a labelled pattern picker: a dropdown of [patterns] (pre-selected to
-     * [savedId]) plus a "Test" button that plays the highlighted pattern so the
-     * user can learn how it feels. Selecting an item persists it via [onSelect].
+     * [savedId]) plus a "Test" button that plays the highlighted pattern so the user
+     * can learn how it feels. The selection is NOT persisted here — that only happens
+     * when the user taps "Save vibration patterns". Returns the Spinner so the caller
+     * can read its choice on save.
      */
     private fun addPatternSelector(
         parent: LinearLayout,
         label: String,
         patterns: List<VibePattern>,
-        savedId: String,
-        onSelect: (String) -> Unit
-    ) {
+        savedId: String
+    ): Spinner {
         val title = TextView(this).apply {
             text = label
             textSize = 15f
@@ -180,12 +223,6 @@ class MainActivity : AppCompatActivity() {
                 patterns.map { it.label }
             )
             setSelection(patterns.indexOfFirst { it.id == savedId }.coerceAtLeast(0))
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    onSelect(patterns[pos].id)
-                }
-                override fun onNothingSelected(p: AdapterView<*>?) {}
-            }
         }
 
         val testButton = Button(this).apply {
@@ -208,6 +245,14 @@ class MainActivity : AppCompatActivity() {
 
         parent.addView(title)
         parent.addView(row)
+        return spinner
+    }
+
+    /** Persist the currently-selected text/call patterns (only on explicit save). */
+    private fun saveVibrationPatterns() {
+        MatchConfig.setTextPatternId(this, VibrationPatterns.TEXT[textPatternSpinner.selectedItemPosition].id)
+        MatchConfig.setCallPatternId(this, VibrationPatterns.CALL[callPatternSpinner.selectedItemPosition].id)
+        Toast.makeText(this, "Patterns saved", Toast.LENGTH_SHORT).show()
     }
 
     /** Persist every app's alias field. Listener picks them up on the next notification. */
@@ -216,6 +261,19 @@ class MainActivity : AppCompatActivity() {
             MatchConfig.setRaw(this, pkg, field.text.toString())
         }
         Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
+    }
+
+    /** Asks for POST_NOTIFICATIONS (Android 13+) so the keep-alive notification can show. */
+    private fun requestPostNotificationsIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ActivityCompat.checkSelfPermission(
+            this, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1
+            )
+        }
     }
 
     /**
@@ -232,6 +290,21 @@ class MainActivity : AppCompatActivity() {
             "❌ Notification Access: DISABLED\nTap below to enable."
         }
         grantButton.visibility = if (enabled) View.GONE else View.VISIBLE
+        refreshLastAlert()
+    }
+
+    /** Shows when the last real alert fired (proof the pipeline is working). */
+    private fun refreshLastAlert() {
+        val at = MatchConfig.getLastAlertAt(this)
+        lastAlertText.text = if (at == 0L) {
+            "Last alert: none yet"
+        } else {
+            val rel = DateUtils.getRelativeTimeSpanString(
+                at, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS
+            )
+            val desc = MatchConfig.getLastAlertDesc(this)?.let { " ($it)" }.orEmpty()
+            "Last alert: $rel$desc"
+        }
     }
 
     /** Checks whether our listener is in the system's enabled-listeners list. */
