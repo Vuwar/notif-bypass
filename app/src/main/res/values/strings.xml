@@ -14,6 +14,7 @@
     <string name="label_call_pattern">Her calls</string>
     <string name="btn_test">Test</string>
     <string name="btn_save_patterns">Save vibration patterns</string>
+    <string name="label_quiet_repeats">Repeats in Silent/DND (how many times her text buzz plays)</string>
     <string name="label_match_body">Also match the message text (needed for group chats; off = sender name only)</string>
     <string name="label_play_sound">Also play alarm sound on a match (loud, DND-proof)</string>
 </resources>

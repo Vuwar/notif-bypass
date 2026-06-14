@@ -22,8 +22,8 @@ class MyNotificationListener : NotificationListenerService() {
         private const val AMP_GENTLE = 160   // Normal mode
         private const val AMP_FULL = 255     // Silent / DND
 
-        // In a quiet mode, replay the one-shot text buzz this many times so it can't be missed.
-        private const val TEXT_REPEATS_QUIET = 3
+        // In a quiet mode the text buzz repeats (count is user-configurable via
+        // MatchConfig.getQuietRepeats), separated by this gap, so it can't be missed.
         private const val TEXT_REPEAT_GAP_MS = 250L
 
         // Safety cap: stop ringing after this long even if the call notification lingers
@@ -120,7 +120,7 @@ class MyNotificationListener : NotificationListenerService() {
     private fun triggerTextVibration() {
         val quiet = isQuietMode()
         val onAmp = if (quiet) AMP_FULL else AMP_GENTLE
-        val repeats = if (quiet) TEXT_REPEATS_QUIET else 1
+        val repeats = if (quiet) MatchConfig.getQuietRepeats(this) else 1
 
         val base = VibrationPatterns.text(MatchConfig.getTextPatternId(this)).timings
         val timings = repeatPattern(base, repeats, TEXT_REPEAT_GAP_MS)

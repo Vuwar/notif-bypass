@@ -164,4 +164,21 @@ object MatchConfig {
 
     fun setCallPatternId(ctx: Context, id: String) =
         prefs(ctx).edit().putString(KEY_CALL_PATTERN, id).apply()
+
+    // --- How many times a text buzz repeats in Silent/DND ("quiet" mode) ---
+
+    private const val KEY_QUIET_REPEATS = "quiet_repeats"
+    const val QUIET_REPEATS_MIN = 1
+    const val QUIET_REPEATS_MAX = 5
+    private const val QUIET_REPEATS_DEFAULT = 1
+
+    /** Repeat count for the text buzz when the phone is Silent/DND. Clamped to 1..5. */
+    fun getQuietRepeats(ctx: Context): Int =
+        prefs(ctx).getInt(KEY_QUIET_REPEATS, QUIET_REPEATS_DEFAULT)
+            .coerceIn(QUIET_REPEATS_MIN, QUIET_REPEATS_MAX)
+
+    fun setQuietRepeats(ctx: Context, count: Int) =
+        prefs(ctx).edit()
+            .putInt(KEY_QUIET_REPEATS, count.coerceIn(QUIET_REPEATS_MIN, QUIET_REPEATS_MAX))
+            .apply()
 }

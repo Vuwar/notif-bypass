@@ -91,9 +91,11 @@ cleanly when repeated in quiet mode); call patterns can be any length.
 
 In `MyNotificationListener.kt`:
 - Call vs text is detected via `Notification.CATEGORY_CALL`.
-- `AMP_GENTLE` / `AMP_FULL` / `TEXT_REPEATS_QUIET` → mode-awareness. In **Silent/DND**
-  the text buzz goes full-strength and repeats `TEXT_REPEATS_QUIET` times; in **Normal**
-  it's a single gentle tap. Quiet mode = DND on, or ringer not normal (see `isQuietMode()`).
+- `AMP_GENTLE` / `AMP_FULL` → mode-awareness. In **Silent/DND** the text buzz goes
+  full-strength and repeats; in **Normal** it's a single gentle tap. Quiet mode = DND
+  on, or ringer not normal (see `isQuietMode()`). The **repeat count is chosen in-app**
+  (*Vibration patterns → Repeats in Silent/DND*, default 1×), persisted via
+  `MatchConfig.getQuietRepeats`.
 - `CALL_MAX_RING_MS` → safety cap on the looping call ring.
 
 Shared playback (used by both the listener and the Test buttons) lives in `Haptics.kt`.

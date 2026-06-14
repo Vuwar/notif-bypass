@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     // Pattern dropdowns; persisted only when "Save vibration patterns" is tapped.
     private lateinit var textPatternSpinner: Spinner
     private lateinit var callPatternSpinner: Spinner
+    private lateinit var quietRepeatsSpinner: Spinner
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -169,6 +170,25 @@ class MainActivity : AppCompatActivity() {
             MatchConfig.getCallPatternId(this)
         )
 
+        // How many times the text buzz repeats while the phone is Silent/DND.
+        val repeatsLabel = TextView(this).apply {
+            text = getString(R.string.label_quiet_repeats)
+            textSize = 15f
+            setPadding(0, 16, 0, 4)
+        }
+        val repeatOptions = (MatchConfig.QUIET_REPEATS_MIN..MatchConfig.QUIET_REPEATS_MAX).toList()
+        quietRepeatsSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@MainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                repeatOptions.map { if (it == 1) "1× (single)" else "$it×" }
+            )
+            setSelection(repeatOptions.indexOf(MatchConfig.getQuietRepeats(this@MainActivity))
+                .coerceAtLeast(0))
+        }
+        root.addView(repeatsLabel)
+        root.addView(quietRepeatsSpinner)
+
         val savePatternsButton = Button(this).apply {
             text = getString(R.string.btn_save_patterns)
             setOnClickListener { saveVibrationPatterns() }
@@ -248,10 +268,11 @@ class MainActivity : AppCompatActivity() {
         return spinner
     }
 
-    /** Persist the currently-selected text/call patterns (only on explicit save). */
+    /** Persist the currently-selected patterns and quiet-mode repeat count (only on explicit save). */
     private fun saveVibrationPatterns() {
         MatchConfig.setTextPatternId(this, VibrationPatterns.TEXT[textPatternSpinner.selectedItemPosition].id)
         MatchConfig.setCallPatternId(this, VibrationPatterns.CALL[callPatternSpinner.selectedItemPosition].id)
+        MatchConfig.setQuietRepeats(this, MatchConfig.QUIET_REPEATS_MIN + quietRepeatsSpinner.selectedItemPosition)
         Toast.makeText(this, "Patterns saved", Toast.LENGTH_SHORT).show()
     }
 
